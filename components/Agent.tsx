@@ -34,6 +34,7 @@ const Agent = ({
   const [messages, setMessages] = useState<SavedMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [lastMessage, setLastMessage] = useState<string>("");
+  const [fatalError, setFatalError] = useState<string | null>(null);
 
   useEffect(() => {
     const onCallStart = () => {
@@ -44,7 +45,7 @@ const Agent = ({
       setCallStatus(CallStatus.FINISHED);
     };
 
-    const onMessage = (message: Message) => {
+    const onMessage = (message: any) => {
       if (message.type === "transcript" && message.transcriptType === "final") {
         const newMessage = { role: message.role, content: message.transcript };
         setMessages((prev) => [...prev, newMessage]);
@@ -52,17 +53,18 @@ const Agent = ({
     };
 
     const onSpeechStart = () => {
-      console.log("speech start");
       setIsSpeaking(true);
     };
 
     const onSpeechEnd = () => {
-      console.log("speech end");
       setIsSpeaking(false);
     };
 
-    const onError = (error: Error) => {
-      console.log("Error:", error);
+    const onError = (error: any) => {
+      setFatalError(
+        error?.message || "An error occurred with the AI Interviewer. Please try again or contact support."
+      );
+      console.error("Vapi Error:", error);
     };
 
     vapi.on("call-start", onCallStart);
@@ -88,19 +90,22 @@ const Agent = ({
     }
 
     const handleGenerateFeedback = async (messages: SavedMessage[]) => {
-      console.log("handleGenerateFeedback");
+      try {
+        const { success, feedbackId: id } = await createFeedback({
+          interviewId: interviewId!,
+          userId: userId!,
+          transcript: messages,
+          feedbackId,
+        });
 
-      const { success, feedbackId: id } = await createFeedback({
-        interviewId: interviewId!,
-        userId: userId!,
-        transcript: messages,
-        feedbackId,
-      });
-
-      if (success && id) {
-        router.push(`/interview/${interviewId}/feedback`);
-      } else {
-        console.log("Error saving feedback");
+        if (success && id) {
+          router.push(`/interview/${interviewId}/feedback`);
+        } else {
+          setFatalError("Error saving feedback. Redirecting to home.");
+          router.push("/");
+        }
+      } catch (err) {
+        setFatalError("Unexpected error saving feedback.");
         router.push("/");
       }
     };
@@ -118,27 +123,65 @@ const Agent = ({
     setCallStatus(CallStatus.CONNECTING);
 
     if (type === "generate") {
-      await vapi.start(
-        
-        process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!, {
-        variableValues: {
-          username: userName,
-          userid: userId,
-        },
-      });
+      const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID;
+      const assistantId = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID;
+      if (!workflowId) {
+        setFatalError("Interview workflow is not configured. Please contact support.");
+        setCallStatus(CallStatus.INACTIVE);
+        return;
+      }
+      if (!assistantId) {
+        setFatalError("Assistant is not configured. Please contact support.");
+        setCallStatus(CallStatus.INACTIVE);
+        return;
+      }
+      if (!userName || !userId) {
+        setFatalError("User information missing. Please login again.");
+        setCallStatus(CallStatus.INACTIVE);
+        return;
+      }
+      try {
+        // Pass assistantId as the 1st argument, workflowId as the 4th argument
+        await vapi.start(
+          assistantId,
+          undefined,
+          undefined,
+          workflowId,
+          {
+            variableValues: {
+              username: userName,
+              userid: userId,
+            },
+          }
+        );
+      } catch (err) {
+        console.error("Error calling vapi.start (generate):", err);
+        setFatalError("Failed to start interview. Please check your internet connection or contact support.");
+        setCallStatus(CallStatus.INACTIVE);
+      }
     } else {
+      if (!interviewer) {
+        setFatalError("No interviewer configured. Please contact support.");
+        setCallStatus(CallStatus.INACTIVE);
+        return;
+      }
       let formattedQuestions = "";
       if (questions) {
         formattedQuestions = questions
           .map((question) => `- ${question}`)
           .join("\n");
       }
-
-      await vapi.start(interviewer, {
-        variableValues: {
-          questions: formattedQuestions,
-        },
-      });
+      try {
+        await vapi.start(interviewer, {
+          variableValues: {
+            questions: formattedQuestions,
+          },
+        });
+      } catch (err) {
+        console.error("Error calling vapi.start (interviewer):", err);
+        setFatalError("Failed to start interview. Please check your internet connection or contact support.");
+        setCallStatus(CallStatus.INACTIVE);
+      }
     }
   };
 
@@ -146,6 +189,19 @@ const Agent = ({
     setCallStatus(CallStatus.FINISHED);
     vapi.stop();
   };
+
+  // === ERROR UI ===
+  if (fatalError) {
+    return (
+      <div className="call-view error">
+        <h2 className="text-red-500 text-xl mb-4">Error</h2>
+        <p>{fatalError}</p>
+        <button className="btn-primary mt-6" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
