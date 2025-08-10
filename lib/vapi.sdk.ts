@@ -6,4 +6,13 @@ if (!token) {
   console.error("NEXT_PUBLIC_VAPI_WEB_TOKEN is missing in environment variables!");
 }
 
-export const vapi = new Vapi(token!);
+// Ensure singleton pattern to prevent SDK duplication
+let vapiInstance: Vapi | null = null;
+
+if (typeof window !== "undefined") {
+  if (!vapiInstance) {
+    vapiInstance = new Vapi(token!);
+  }
+}
+
+export const vapi = vapiInstance!;
