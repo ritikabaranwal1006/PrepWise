@@ -122,26 +122,22 @@ const Agent = ({
 
     if (type === "generate") {
       const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID;
-      const assistantId = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID;
+      
       if (!workflowId) {
         setFatalError("Interview workflow is not configured. Please contact support.");
         setCallStatus(CallStatus.INACTIVE);
         return;
       }
-      if (!assistantId) {
-        setFatalError("Assistant is not configured. Please contact support.");
-        setCallStatus(CallStatus.INACTIVE);
-        return;
-      }
+   
       if (!userName || !userId) {
         setFatalError("User information missing. Please login again.");
         setCallStatus(CallStatus.INACTIVE);
         return;
       }
       try {
-        // Pass assistantId as the 1st argument, workflowId as the 4th argument
+        
         await vapi.start(
-          assistantId,
+         
           undefined,
           undefined,
           workflowId,
